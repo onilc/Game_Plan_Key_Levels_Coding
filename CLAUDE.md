@@ -20,7 +20,7 @@ This is a single-file application (`Gameplan_Code_For_TradingView.gs`) with the 
 - **User Interface:** `showCodePreview()` displays modal dialog with generated code and copy button
 - **Code Generation:** `buildPineScript()` reads sheet data and generates Pine Script v6 code
 - **Data Parsing:** `parseStockData()` and `parseLevels()` convert sheet data into structured objects
-- **Utilities:** `escapeHtml()` sanitizes text for HTML display
+- **Utilities:** `escapeHtml()` sanitizes text for HTML display, `formatAsPercentage()` handles percentage conversion and formatting
 
 ## Data Schema
 
@@ -31,11 +31,13 @@ The script reads from "CodingSheet" with this column structure:
 - **Column F:** Resistance levels (comma-separated, e.g., "455, 458.3, 461, 465")
 - **Column G:** Inflection level (single value)
 - **Column H:** Skipped
-- **Column I:** Short Float % (e.g., "15.3")
-- **Column J:** Institutional Ownership % (e.g., "78.5")
+- **Column I:** Short Float % (decimal format like "0.023" or percentage like "15.3" - both supported)
+- **Column J:** Institutional Ownership % (decimal format like "0.6671" or percentage like "78.5" - both supported)
 - **Column K:** Float (e.g., "25M" or "100K")
 
 Data is read from rows 2-11 (up to 10 stocks).
+
+**Note:** Short Float % and Institutional Ownership % are automatically formatted by `formatAsPercentage()` which converts decimals to percentages and applies conditional decimal precision (1 decimal if <3%, none if ≥3%).
 
 ## Development Workflow
 
@@ -59,6 +61,7 @@ Data is read from rows 2-11 (up to 10 stocks).
 - **`buildPineScript()`** - Core generator that reads sheet data and builds Pine Script code
 - **`parseStockData(data)`** - Converts 2D array from sheet into structured stock objects
 - **`parseLevels(str, count)`** - Parses comma-separated level strings, handles empty/malformed input
+- **`formatAsPercentage(value)`** - Converts decimal values to percentages (0.6671 → 67%), applies conditional formatting (1 decimal if <3%, none if ≥3%)
 
 ## Generated Pine Script Features
 

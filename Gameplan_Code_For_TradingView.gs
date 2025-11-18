@@ -271,9 +271,13 @@ function parseStockData(data) {
 
     // Get fundamentals directly from the same row
     // [5]=I=SF%, [6]=J=InstOwn, [7]=K=Float
-    const sf = row[5] ? row[5].toString().trim() : '0%';
-    const instOwn = row[6] ? row[6].toString().trim() : '0%';
+    const sfRaw = row[5] ? row[5] : 0;
+    const instOwnRaw = row[6] ? row[6] : 0;
     const float = row[7] ? row[7].toString().trim() : '0K';
+
+    // Convert decimals to percentages if needed
+    const sf = formatAsPercentage(sfRaw);
+    const instOwn = formatAsPercentage(instOwnRaw);
 
     stocks.push({
       symbol: symbol,
@@ -315,7 +319,37 @@ function parseLevels(str, count) {
   return levels;
 }
 
+/**
+ * Formats a value as percentage string
+ * Handles both decimal format (0.6671) and percentage format (66.71)
+ * If absolute value < 3%, shows one decimal place; otherwise no decimals
+ */
+function formatAsPercentage(value) {
+  if (typeof value === 'string') {
+    value = value.toString().trim();
+    if (value.endsWith('%')) return value; // Already formatted
+    value = parseFloat(value);
+  }
 
+  if (isNaN(value) || value === null || value === undefined) {
+    return '0%';
+  }
+
+  // If value is between 0 and 1, assume it's a decimal that needs to be converted
+  if (value > 0 && value < 1) {
+    value = value * 100;
+  }
+
+  // If absolute value < 3%, show one decimal; otherwise no decimals
+  let formatted;
+  if (Math.abs(value) < 3) {
+    formatted = (Math.round(value * 10) / 10).toString();
+  } else {
+    formatted = Math.round(value).toString();
+  }
+
+  return formatted + '%';
+}
 
 /**
  * Escapes HTML special characters

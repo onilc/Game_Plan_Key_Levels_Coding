@@ -23,8 +23,8 @@
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
   ui.createMenu('Pine Script')
-      .addItem('Preview TV Code', 'showCodePreview')
-      .addToUi();
+    .addItem('Preview TV Code', 'showCodePreview')
+    .addToUi();
 }
 
 
@@ -117,8 +117,8 @@ function showCodePreview() {
         }
       </script>
     `)
-    .setWidth(800)
-    .setHeight(600);
+      .setWidth(800)
+      .setHeight(600);
 
     SpreadsheetApp.getUi().showModalDialog(html, 'TradingView Pine Script Preview');
   } catch (error) {
@@ -165,22 +165,26 @@ FloatTxt = '0K'
 SF = '0%'
 InstOwn = '0%'
 
-// === Gap calculation (premarket uses last price; regular session uses today's open) ===
-prevClose = request.security(syminfo.tickerid, "D", close[1], barmerge.gaps_off, barmerge.lookahead_on)
+// === Gap calculation ===
+// We want:
+// 1. Pre-Market: Gap = (Current Price - Prev 4pm Close) / Prev 4pm Close
+// 2. Market/Post: Gap = (Today 9:30 Open - Prev 4pm Close) / Prev 4pm Close
 
-// Get today's open from daily chart (this is the 9:30am open)
-todayOpen = request.security(syminfo.tickerid, "D", open, barmerge.gaps_off, barmerge.lookahead_on)
+// Create a ticker identifier for Regular Trading Hours (0930-1600)
+// This ensures we get the 9:30am Open and 4:00pm Close, ignoring ETH
+t_rth = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
 
-// Determine if we're in regular session (9:30am - 4pm ET)
-// time() returns non-na during specified session
-isRegularSession = not na(time(timeframe.period, "0930-1600"))
+// Get Previous Close (Regular Session Close, i.e., 4pm yesterday)
+prevClose = request.security(t_rth, "D", close[1], barmerge.gaps_off, barmerge.lookahead_on)
 
-// Reference price logic:
-// - Before market open (premarket 4am-9:30am): use current price (close)
-// - After market open (9:30am onwards): use today's daily open price
-// We check if todayOpen is available and valid (not 0.01 default)
-hasOpenedToday = not na(todayOpen) and todayOpen > 0
-refPrice = (isRegularSession or hasOpenedToday) ? todayOpen : close
+// Get Today's Open (Regular Session Open, i.e., 9:30am today)
+// In Pre-Market, this should be NA because the session hasn't started yet
+todayOpen = request.security(t_rth, "D", open, barmerge.gaps_off, barmerge.lookahead_on)
+
+// Logic:
+// If todayOpen exists (we are in or after RTH), use it.
+// Otherwise (Pre-Market), use current price (close).
+refPrice = not na(todayOpen) ? todayOpen : close
 
 gappct = 100.0 * ((refPrice - prevClose) / prevClose)
 // < 3% -> one decimal; >= 3% -> no decimals
@@ -361,4 +365,16 @@ function escapeHtml(text) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+if (typeof module !== 'undefined') {
+  module.exports = {
+    onOpen,
+    showCodePreview,
+    buildPineScript,
+    parseStockData,
+    parseLevels,
+    formatAsPercentage,
+    escapeHtml
+  };
 }

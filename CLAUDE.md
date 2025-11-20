@@ -69,7 +69,9 @@ The output includes:
 - 4 support levels (S1-S4) rendered as green horizontal lines
 - 4 resistance levels (R1-R4) rendered as red horizontal lines
 - 1 inflection level (I1) rendered as orange horizontal line
-- Real-time gap calculation (premarket high vs regular session open)
+- Real-time gap calculation:
+  - **Pre-Market:** Uses current price vs previous close (dynamic)
+  - **Regular/Post-Market:** Uses 9:30 AM RTH open vs previous close (static)
 - Table overlay displaying Float, Short Float %, Gap %, and Institutional Ownership
 
 All levels are toggled via Pine Script inputs for user customization in TradingView.

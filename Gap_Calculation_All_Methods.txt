@@ -1,0 +1,296 @@
+//@version=6
+indicator("Gap Calculation - ALL METHODS TEST", overlay=true)
+
+// ============================================================================
+// INSTRUCTIONS:
+// This indicator shows 6 different gap calculation methods side-by-side
+// Each method displays its gap percentage in a different color
+// 
+// EXPECTED BEHAVIOR:
+// - Pre-Market (4am-9:30am): Gap = (Current Price - Yesterday's 4pm Close) / Yesterday's 4pm Close
+// - Market Hours (9:30am+): Gap = (Today's 9:30am Open - Yesterday's 4pm Close) / Yesterday's 4pm Close
+//
+// TEST PROCEDURE:
+// 1. Load this indicator on a stock chart in TradingView
+// 2. Enable Extended Trading Hours in chart settings
+// 3. Check the gap values during pre-market (before 9:30am ET)
+// 4. Check the gap values during market hours (after 9:30am ET)
+// 5. Identify which method shows the CORRECT gap in BOTH scenarios
+// ============================================================================
+
+// ============================================================================
+// COMMON: Get Regular Trading Hours ticker and previous close
+// CRITICAL FIX: We need yesterday's 4pm close, not 2 days ago
+// ============================================================================
+t_rth = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+
+// Time calculation (used by multiple methods)
+currentHour = hour(time, "America/New_York")
+currentMinute = minute(time, "America/New_York")
+currentTimeMinutes = currentHour * 60 + currentMinute
+marketOpenMinutes = 9 * 60 + 30  // 9:30 AM = 570 minutes
+
+// Check if market has opened
+isPastMarketOpen = currentTimeMinutes >= marketOpenMinutes
+
+// The issue: During pre-market Monday, daily bar is still Monday
+// So close[1] on daily gives us Friday's bar, but that bar's close[1] = Thursday
+// 
+// Solution: 
+// - PRE-MARKET: Use TODAY's daily close (shows yesterday's 4pm close because today's bar hasn't closed)
+// - MARKET HOURS: Use close[1] (shows yesterday's close correctly)
+
+// Get yesterday's OHLC from the daily RTH
+prevDayHigh = request.security(t_rth, "D", high[1], lookahead=barmerge.lookahead_on)
+prevDayLow = request.security(t_rth, "D", low[1], lookahead=barmerge.lookahead_on)
+prevDayOpen = request.security(t_rth, "D", open[1], lookahead=barmerge.lookahead_on)
+prevDayClose = request.security(t_rth, "D", close[1], lookahead=barmerge.lookahead_on)
+
+// Get TODAY's OHLC from the daily RTH
+// During pre-market, today's close should be yesterday's actual 4pm close!
+todayDayHigh = request.security(t_rth, "D", high, lookahead=barmerge.lookahead_on)
+todayDayLow = request.security(t_rth, "D", low, lookahead=barmerge.lookahead_on)
+todayDayOpen = request.security(t_rth, "D", open, lookahead=barmerge.lookahead_on)
+todayDayClose = request.security(t_rth, "D", close, lookahead=barmerge.lookahead_on)
+
+// CONDITIONAL LOGIC: Choose the correct previous close based on session
+// Pre-market: Use today's daily close (which is yesterday's 4pm close)
+// Market hours: Use yesterday's daily close (close[1])
+prevCloseRTH = isPastMarketOpen ? prevDayClose : todayDayClose
+
+// ============================================================================
+// METHOD 1: Current Implementation (ticker.new with session.regular)
+// ============================================================================
+todayOpenRTH_1 = request.security(t_rth, "D", open, barmerge.gaps_off, barmerge.lookahead_on)
+refPrice_1 = not na(todayOpenRTH_1) ? todayOpenRTH_1 : close
+gap_1 = 100.0 * ((refPrice_1 - prevCloseRTH) / prevCloseRTH)
+gapDisp_1 = math.abs(gap_1) < 3 ? math.round(gap_1 * 10.0) / 10.0 : math.round(gap_1)
+
+// ============================================================================
+// METHOD 2: Time-Based Detection (9:30am ET check) + RTH Close
+// ============================================================================
+todayOpenRTH_2 = request.security(t_rth, "D", open, barmerge.gaps_off, barmerge.lookahead_on)
+hasMarketOpened_2 = currentTimeMinutes >= marketOpenMinutes
+refPrice_2 = hasMarketOpened_2 ? todayOpenRTH_2 : close
+gap_2 = 100.0 * ((refPrice_2 - prevCloseRTH) / prevCloseRTH)
+gapDisp_2 = math.abs(gap_2) < 3 ? math.round(gap_2 * 10.0) / 10.0 : math.round(gap_2)
+
+// ============================================================================
+// METHOD 3: Session Detection (isRegularSession) + RTH Close
+// ============================================================================
+todayOpenRTH_3 = request.security(t_rth, "D", open, barmerge.gaps_off, barmerge.lookahead_on)
+isRegularSession_3 = not na(time(timeframe.period, "0930-1600"))
+refPrice_3 = isRegularSession_3 ? todayOpenRTH_3 : close
+gap_3 = 100.0 * ((refPrice_3 - prevCloseRTH) / prevCloseRTH)
+gapDisp_3 = math.abs(gap_3) < 3 ? math.round(gap_3 * 10.0) / 10.0 : math.round(gap_3)
+
+// ============================================================================
+// METHOD 4: Daily Bar Change Detection + RTH Close
+// ============================================================================
+todayOpenRTH_4 = request.security(t_rth, "D", open, barmerge.gaps_off, barmerge.lookahead_on)
+yesterdayOpenRTH_4 = request.security(t_rth, "D", open[1], barmerge.gaps_off, barmerge.lookahead_on)
+hasNewDailyBar_4 = todayOpenRTH_4 != yesterdayOpenRTH_4
+isPastMarketOpen_4 = currentTimeMinutes >= 570
+shouldUseTodayOpen_4 = hasNewDailyBar_4 and isPastMarketOpen_4
+refPrice_4 = shouldUseTodayOpen_4 ? todayOpenRTH_4 : close
+gap_4 = 100.0 * ((refPrice_4 - prevCloseRTH) / prevCloseRTH)
+gapDisp_4 = math.abs(gap_4) < 3 ? math.round(gap_4 * 10.0) / 10.0 : math.round(gap_4)
+
+// ============================================================================
+// METHOD 5: Explicit NA Check with Time Verification + RTH Close
+// ============================================================================
+todayOpenRTH_5 = request.security(t_rth, "D", open, barmerge.gaps_off, barmerge.lookahead_on)
+yesterdayOpenRTH_5 = request.security(t_rth, "D", open[1], barmerge.gaps_off, barmerge.lookahead_on)
+hasNewRTHBar_5 = todayOpenRTH_5 != yesterdayOpenRTH_5
+isPast930_5 = currentTimeMinutes >= 570
+shouldUseTodayOpen_5 = hasNewRTHBar_5 and isPast930_5
+refPrice_5 = shouldUseTodayOpen_5 ? todayOpenRTH_5 : close
+gap_5 = 100.0 * ((refPrice_5 - prevCloseRTH) / prevCloseRTH)
+gapDisp_5 = math.abs(gap_5) < 3 ? math.round(gap_5 * 10.0) / 10.0 : math.round(gap_5)
+
+// ============================================================================
+// METHOD 6: Session State Variable (Persistent Flag) + RTH Close
+// ============================================================================
+todayOpenRTH_6 = request.security(t_rth, "D", open, barmerge.gaps_off, barmerge.lookahead_on)
+var bool marketHasOpened_6 = false
+isRegular_6 = not na(time(timeframe.period, "0930-1600"))
+// Once we enter regular session, set flag (stays true for the day)
+if isRegular_6
+    marketHasOpened_6 := true
+// Reset flag at start of new day
+if ta.change(dayofmonth) != 0
+    marketHasOpened_6 := false
+refPrice_6 = marketHasOpened_6 ? todayOpenRTH_6 : close
+gap_6 = 100.0 * ((refPrice_6 - prevCloseRTH) / prevCloseRTH)
+gapDisp_6 = math.abs(gap_6) < 3 ? math.round(gap_6 * 10.0) / 10.0 : math.round(gap_6)
+
+// ============================================================================
+// DISPLAY ALL METHODS IN A TABLE
+// ============================================================================
+var table gapTable = table.new(position.top_left, 4, 8, bgcolor=color.new(color.black, 10), frame_color=color.white, frame_width=2, border_width=1, border_color=color.gray)
+
+if barstate.islast
+    // Header
+    table.cell(gapTable, 0, 0, "METHOD", text_color=color.white, bgcolor=color.new(color.blue, 30), text_size=size.large)
+    table.cell(gapTable, 1, 0, "GAP %", text_color=color.white, bgcolor=color.new(color.blue, 30), text_size=size.large)
+    table.cell(gapTable, 2, 0, "GAP (2 dec)", text_color=color.white, bgcolor=color.new(color.blue, 30), text_size=size.normal)
+    table.cell(gapTable, 3, 0, "REF PRICE", text_color=color.white, bgcolor=color.new(color.blue, 30), text_size=size.normal)
+    
+    // Current time info
+    timeStr = str.format("{0,number,00}:{1,number,00} ET", currentHour, currentMinute)
+    sessionStatus = currentTimeMinutes < 570 ? "PRE-MARKET" : (currentTimeMinutes < 960 ? "MARKET HOURS" : "AFTER HOURS")
+    table.cell(gapTable, 0, 1, "Current Time:", text_color=color.yellow, text_size=size.normal)
+    table.cell(gapTable, 1, 1, timeStr, text_color=color.yellow, text_size=size.normal)
+    table.cell(gapTable, 2, 1, sessionStatus, text_color=color.yellow, text_size=size.normal, bgcolor=color.new(color.orange, 70))
+    table.cell(gapTable, 3, 1, "Close: " + str.tostring(close, format.mintick), text_color=color.yellow, text_size=size.small)
+    
+    // Method 1
+    gap1_2dec = math.round(gap_1 * 100) / 100
+    table.cell(gapTable, 0, 2, "1: ticker.new RTH", text_color=color.white, text_size=size.normal)
+    table.cell(gapTable, 1, 2, str.tostring(gapDisp_1) + "%", text_color=gap_1 >= 0 ? color.lime : color.red, text_size=size.large)
+    table.cell(gapTable, 2, 2, str.tostring(gap1_2dec) + "%", text_color=gap_1 >= 0 ? color.lime : color.red, text_size=size.normal)
+    table.cell(gapTable, 3, 2, str.tostring(refPrice_1, format.mintick), text_color=color.gray, text_size=size.small)
+    
+    // Method 2
+    gap2_2dec = math.round(gap_2 * 100) / 100
+    table.cell(gapTable, 0, 3, "2: Time-Based", text_color=color.white, text_size=size.normal)
+    table.cell(gapTable, 1, 3, str.tostring(gapDisp_2) + "%", text_color=gap_2 >= 0 ? color.lime : color.red, text_size=size.large)
+    table.cell(gapTable, 2, 3, str.tostring(gap2_2dec) + "%", text_color=gap_2 >= 0 ? color.lime : color.red, text_size=size.normal)
+    table.cell(gapTable, 3, 3, str.tostring(refPrice_2, format.mintick), text_color=color.gray, text_size=size.small)
+    
+    // Method 3
+    gap3_2dec = math.round(gap_3 * 100) / 100
+    table.cell(gapTable, 0, 4, "3: Session Check", text_color=color.white, text_size=size.normal)
+    table.cell(gapTable, 1, 4, str.tostring(gapDisp_3) + "%", text_color=gap_3 >= 0 ? color.lime : color.red, text_size=size.large)
+    table.cell(gapTable, 2, 4, str.tostring(gap3_2dec) + "%", text_color=gap_3 >= 0 ? color.lime : color.red, text_size=size.normal)
+    table.cell(gapTable, 3, 4, str.tostring(refPrice_3, format.mintick), text_color=color.gray, text_size=size.small)
+    
+    // Method 4
+    gap4_2dec = math.round(gap_4 * 100) / 100
+    table.cell(gapTable, 0, 5, "4: Bar Change", text_color=color.white, text_size=size.normal)
+    table.cell(gapTable, 1, 5, str.tostring(gapDisp_4) + "%", text_color=gap_4 >= 0 ? color.lime : color.red, text_size=size.large)
+    table.cell(gapTable, 2, 5, str.tostring(gap4_2dec) + "%", text_color=gap_4 >= 0 ? color.lime : color.red, text_size=size.normal)
+    table.cell(gapTable, 3, 5, str.tostring(refPrice_4, format.mintick), text_color=color.gray, text_size=size.small)
+    
+    // Method 5
+    gap5_2dec = math.round(gap_5 * 100) / 100
+    table.cell(gapTable, 0, 6, "5: RTH + Bar Check", text_color=color.white, text_size=size.normal)
+    table.cell(gapTable, 1, 6, str.tostring(gapDisp_5) + "%", text_color=gap_5 >= 0 ? color.lime : color.red, text_size=size.large)
+    table.cell(gapTable, 2, 6, str.tostring(gap5_2dec) + "%", text_color=gap_5 >= 0 ? color.lime : color.red, text_size=size.normal)
+    table.cell(gapTable, 3, 6, str.tostring(refPrice_5, format.mintick), text_color=color.gray, text_size=size.small)
+    
+    // Method 6
+    gap6_2dec = math.round(gap_6 * 100) / 100
+    table.cell(gapTable, 0, 7, "6: State Variable", text_color=color.white, text_size=size.normal)
+    table.cell(gapTable, 1, 7, str.tostring(gapDisp_6) + "%", text_color=gap_6 >= 0 ? color.lime : color.red, text_size=size.large)
+    table.cell(gapTable, 2, 7, str.tostring(gap6_2dec) + "%", text_color=gap_6 >= 0 ? color.lime : color.red, text_size=size.normal)
+    table.cell(gapTable, 3, 7, str.tostring(refPrice_6, format.mintick), text_color=color.gray, text_size=size.small)
+
+// ============================================================================
+// DEBUGGING INFO (Bottom Right) - EXPANDED
+// ============================================================================
+var table debugTable = table.new(position.bottom_right, 2, 21, bgcolor=color.new(color.black, 20), frame_color=color.orange, frame_width=1, border_width=1, border_color=color.gray)
+
+if barstate.islast
+    table.cell(debugTable, 0, 0, "DEBUG INFO", text_color=color.orange, text_size=size.normal, bgcolor=color.new(color.black, 50))
+    table.cell(debugTable, 1, 0, "", text_color=color.white, text_size=size.normal)
+    
+    table.cell(debugTable, 0, 1, "Current Price:", text_color=color.white, text_size=size.small)
+    table.cell(debugTable, 1, 1, str.tostring(close, format.mintick), text_color=color.yellow, text_size=size.normal)
+    
+    table.cell(debugTable, 0, 2, "Prev Close (RTH):", text_color=color.white, text_size=size.small)
+    table.cell(debugTable, 1, 2, str.tostring(prevCloseRTH, format.mintick), text_color=color.yellow, text_size=size.normal)
+    
+    table.cell(debugTable, 0, 3, "Using:", text_color=color.white, text_size=size.small)
+    prevCloseSource = isPastMarketOpen ? "PREV CLOSE" : "TODAY CLOSE"
+    table.cell(debugTable, 1, 3, prevCloseSource, text_color=color.orange, text_size=size.normal)
+    
+    // Show TODAY's OHLC (during pre-market, close should be yesterday's 4pm)
+    table.cell(debugTable, 0, 4, "TODAY OPEN (D):", text_color=color.white, text_size=size.small)
+    table.cell(debugTable, 1, 4, str.tostring(todayDayOpen, format.mintick), text_color=color.fuchsia, text_size=size.normal)
+    
+    table.cell(debugTable, 0, 5, "TODAY HIGH (D):", text_color=color.white, text_size=size.small)
+    table.cell(debugTable, 1, 5, str.tostring(todayDayHigh, format.mintick), text_color=color.fuchsia, text_size=size.normal)
+    
+    table.cell(debugTable, 0, 6, "TODAY LOW (D):", text_color=color.white, text_size=size.small)
+    table.cell(debugTable, 1, 6, str.tostring(todayDayLow, format.mintick), text_color=color.fuchsia, text_size=size.normal)
+    
+    table.cell(debugTable, 0, 7, "TODAY CLOSE (D):", text_color=color.white, text_size=size.small)
+    table.cell(debugTable, 1, 7, str.tostring(todayDayClose, format.mintick), text_color=color.fuchsia, text_size=size.normal)
+    
+    // Show previous day OHLC
+    table.cell(debugTable, 0, 8, "PREV Day OPEN:", text_color=color.white, text_size=size.small)
+    table.cell(debugTable, 1, 8, str.tostring(prevDayOpen, format.mintick), text_color=color.aqua, text_size=size.normal)
+    
+    table.cell(debugTable, 0, 9, "PREV Day HIGH:", text_color=color.white, text_size=size.small)
+    table.cell(debugTable, 1, 9, str.tostring(prevDayHigh, format.mintick), text_color=color.aqua, text_size=size.normal)
+    
+    table.cell(debugTable, 0, 10, "PREV Day LOW:", text_color=color.white, text_size=size.small)
+    table.cell(debugTable, 1, 10, str.tostring(prevDayLow, format.mintick), text_color=color.aqua, text_size=size.normal)
+    
+    table.cell(debugTable, 0, 11, "PREV Day CLOSE:", text_color=color.white, text_size=size.small)
+    table.cell(debugTable, 1, 11, str.tostring(prevDayClose, format.mintick), text_color=color.aqua, text_size=size.normal)
+    
+    table.cell(debugTable, 0, 12, "Today Open (RTH):", text_color=color.white, text_size=size.small)
+    table.cell(debugTable, 1, 12, str.tostring(todayOpenRTH_1, format.mintick), text_color=color.yellow, text_size=size.normal)
+    
+    table.cell(debugTable, 0, 13, "Time (minutes):", text_color=color.white, text_size=size.small)
+    table.cell(debugTable, 1, 13, str.tostring(currentTimeMinutes), text_color=color.white, text_size=size.normal)
+    
+    // Separator
+    table.cell(debugTable, 0, 14, "--- METHOD DETAILS ---", text_color=color.orange, text_size=size.small)
+    table.cell(debugTable, 1, 14, "", text_color=color.white, text_size=size.small)
+    
+    // Method 1 details
+    table.cell(debugTable, 0, 15, "M1: RefPrice", text_color=color.white, text_size=size.small)
+    table.cell(debugTable, 1, 15, str.tostring(refPrice_1, format.mintick), text_color=color.lime, text_size=size.normal)
+    
+    table.cell(debugTable, 0, 16, "M1: Gap (2 dec)", text_color=color.white, text_size=size.small)
+    gap1_precise = math.round(gap_1 * 100) / 100
+    table.cell(debugTable, 1, 16, str.tostring(gap1_precise) + "%", text_color=gap_1 >= 0 ? color.lime : color.red, text_size=size.normal)
+    
+    // Method 2 details
+    table.cell(debugTable, 0, 17, "M2: RefPrice", text_color=color.white, text_size=size.small)
+    table.cell(debugTable, 1, 17, str.tostring(refPrice_2, format.mintick), text_color=color.lime, text_size=size.normal)
+    
+    table.cell(debugTable, 0, 18, "M2: Gap (2 dec)", text_color=color.white, text_size=size.small)
+    gap2_precise = math.round(gap_2 * 100) / 100
+    table.cell(debugTable, 1, 18, str.tostring(gap2_precise) + "%", text_color=gap_2 >= 0 ? color.lime : color.red, text_size=size.normal)
+    
+    // Manual calculation for verification
+    table.cell(debugTable, 0, 19, "Manual Calc:", text_color=color.white, text_size=size.small)
+    manualGap = 100.0 * ((close - prevCloseRTH) / prevCloseRTH)
+    manualGap_precise = math.round(manualGap * 100) / 100
+    table.cell(debugTable, 1, 19, str.tostring(manualGap_precise) + "%", text_color=manualGap >= 0 ? color.lime : color.red, text_size=size.normal)
+    
+    // Is today's RTH open NA?
+    table.cell(debugTable, 0, 20, "RTH Open is NA?", text_color=color.white, text_size=size.small)
+    table.cell(debugTable, 1, 20, str.tostring(na(todayOpenRTH_1)), text_color=color.yellow, text_size=size.normal)
+
+// ============================================================================
+// ANALYSIS NOTES
+// ============================================================================
+// After testing, document which method works correctly:
+//
+// CORRECT METHOD: ___________
+//
+// OBSERVATIONS:
+// Pre-Market behavior:
+// - Method 1: 
+// - Method 2: 
+// - Method 3: 
+// - Method 4: 
+// - Method 5: 
+// - Method 6: 
+//
+// Market Hours behavior:
+// - Method 1: 
+// - Method 2: 
+// - Method 3: 
+// - Method 4: 
+// - Method 5: 
+// - Method 6: 
+//
+// RECOMMENDATION:
+// Use Method ___ because:
+// ============================================================================

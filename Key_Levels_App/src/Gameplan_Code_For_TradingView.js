@@ -166,25 +166,43 @@ SF = '0%'
 InstOwn = '0%'
 
 // === Gap calculation ===
-// We want:
-// 1. Pre-Market: Gap = (Current Price - Prev 4pm Close) / Prev 4pm Close
-// 2. Market/Post: Gap = (Today 9:30 Open - Prev 4pm Close) / Prev 4pm Close
+// FIXED: Correctly get yesterday's 4pm close in both pre-market and market hours
+// 
+// The Problem: During pre-market, close[1] on daily RTH bars was getting 2 days ago
+// The Solution: 
+//   - Pre-Market: Use today's daily close (shows yesterday's 4pm because bar hasn't closed)
+//   - Market Hours: Use close[1] (shows yesterday's close correctly)
 
 // Create a ticker identifier for Regular Trading Hours (0930-1600)
-// This ensures we get the 9:30am Open and 4:00pm Close, ignoring ETH
 t_rth = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
 
-// Get Previous Close (Regular Session Close, i.e., 4pm yesterday)
-prevClose = request.security(t_rth, "D", close[1], barmerge.gaps_off, barmerge.lookahead_on)
+// Get current time in ET
+currentHour = hour(time, "America/New_York")
+currentMinute = minute(time, "America/New_York")
+currentTimeMinutes = currentHour * 60 + currentMinute
+marketOpenMinutes = 9 * 60 + 30  // 9:30 AM = 570 minutes
+
+// Check if market has opened
+isPastMarketOpen = currentTimeMinutes >= marketOpenMinutes
+
+// Get yesterday's close (close[1]) - works during market hours
+prevDayClose = request.security(t_rth, "D", close[1], lookahead=barmerge.lookahead_on)
+
+// Get today's close - during pre-market, this shows yesterday's 4pm close!
+todayDayClose = request.security(t_rth, "D", close, lookahead=barmerge.lookahead_on)
+
+// CONDITIONAL: Choose correct previous close based on session
+// Pre-market: Use today's daily close (which is yesterday's 4pm close)
+// Market hours: Use yesterday's daily close (close[1])
+prevClose = isPastMarketOpen ? prevDayClose : todayDayClose
 
 // Get Today's Open (Regular Session Open, i.e., 9:30am today)
-// In Pre-Market, this should be NA because the session hasn't started yet
-todayOpen = request.security(t_rth, "D", open, barmerge.gaps_off, barmerge.lookahead_on)
+todayOpen = request.security(t_rth, "D", open, lookahead=barmerge.lookahead_on)
 
-// Logic:
-// If todayOpen exists (we are in or after RTH), use it.
-// Otherwise (Pre-Market), use current price (close).
-refPrice = not na(todayOpen) ? todayOpen : close
+// Reference price logic:
+// Pre-Market: use current price
+// Market Hours: use today's 9:30am open
+refPrice = isPastMarketOpen ? todayOpen : close
 
 gappct = 100.0 * ((refPrice - prevClose) / prevClose)
 // < 3% -> one decimal; >= 3% -> no decimals

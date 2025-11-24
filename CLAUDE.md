@@ -69,9 +69,30 @@ The output includes:
 - 4 support levels (S1-S4) rendered as green horizontal lines
 - 4 resistance levels (R1-R4) rendered as red horizontal lines
 - 1 inflection level (I1) rendered as orange horizontal line
-- Real-time gap calculation:
-  - **Pre-Market:** Uses current price vs previous close (dynamic)
-  - **Regular/Post-Market:** Uses 9:30 AM RTH open vs previous close (static)
+- **Real-time gap calculation (FIXED 2024-11-24):**
+  - **Pre-Market (before 9:30am ET):** Gap = (Current Price - Yesterday's 4pm Close) / Yesterday's 4pm Close
+  - **Market Hours (after 9:30am ET):** Gap = (Today's 9:30am Open - Yesterday's 4pm Close) / Yesterday's 4pm Close
+  - **Technical Details:** Uses conditional logic based on time to correctly identify yesterday's 4pm close:
+    - Pre-market: Uses `todayDayClose` (today's daily bar close, which shows yesterday's 4pm because bar hasn't closed)
+    - Market hours: Uses `prevDayClose` (close[1], which works correctly after market opens)
+  - **Root Cause Fixed:** Previously, `close[1]` on daily RTH bars during pre-market was incorrectly getting the close from 2 days ago instead of yesterday's 4pm close
 - Table overlay displaying Float, Short Float %, Gap %, and Institutional Ownership
 
 All levels are toggled via Pine Script inputs for user customization in TradingView.
+
+## Recent Changes
+
+### 2024-11-24: Gap Calculation Fix
+**Problem:** During pre-market hours, the gap calculation was showing the gap relative to the close from 2 days ago instead of yesterday's 4pm close.
+
+**Root Cause:** When using `close[1]` on daily RTH bars during pre-market (e.g., Monday pre-market), the current daily bar is still Monday, so `close[1]` references Friday's bar. However, Friday's bar `close[1]` actually points to Thursday's close, not Friday's 4pm close.
+
+**Solution:** Implemented time-based conditional logic in `buildPineScript()`:
+- **Pre-market:** Use `request.security(t_rth, "D", close)` which shows yesterday's 4pm close because today's daily bar hasn't closed yet
+- **Market hours:** Use `request.security(t_rth, "D", close[1])` which correctly shows yesterday's close
+
+**Files Modified:**
+- `Key_Levels_App/src/Gameplan_Code_For_TradingView.js` - Main code with gap calculation fix
+- `Gap_Calculation_All_Methods.txt` - Test file with 6 different methods for validation
+
+**Testing:** Created comprehensive test indicator with 6 methods, tested during both pre-market and market hours, confirmed Methods 2-6 work correctly, implemented Method 2 (Time-Based) as the final solution.
